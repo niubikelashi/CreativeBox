@@ -7,6 +7,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * /sb 指令处理器 + tab 补全。
@@ -17,8 +18,8 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
 
     private final CreativeBoxPlugin plugin;
     
-    // 1 秒冷却
-    private final Map<UUID, Long> cooldowns = new HashMap<>();
+    // FIX: ConcurrentHashMap for thread-safe access from multiple command invocations
+    private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
 
     public SandboxCommand(CreativeBoxPlugin plugin) {
         this.plugin = plugin;
@@ -59,7 +60,7 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
         // 冷却检查
         UUID uuid = player.getUniqueId();
         long now = System.currentTimeMillis();
-        Long lastUse = cooldowns.get(uuid);
+        Long lastUse = cooldowns.put(uuid, now);
         if (lastUse != null && now - lastUse < 1000) {
             sendCooldown(player);
             return true;
@@ -73,7 +74,6 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
             svc.enter(player);
         }
 
-        cooldowns.put(uuid, now);
         return true;
     }
 
