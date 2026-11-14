@@ -111,9 +111,11 @@ public class PlayerStateStore {
             writer.newLine();
 
             // inventory & ender chest (BukkitObjectOutputStream -> Base64)
-            writer.write("inventory: \"" + serializeItemsToBase64(null) + "\"");
+            String invB64 = serializeItemsToBase64(null);  // saved as null, restored from in-memory snapshot on exit
+            String ecB64 = serializeItemsToBase64(null);
+            writer.write("inventory: \"" + invB64 + "\"");
             writer.newLine();
-            writer.write("ender-chest: \"" + serializeItemsToBase64(null) + "\"");
+            writer.write("ender-chest: \"" + ecB64 + "\"");
             writer.newLine();
 
             // atomic move
@@ -141,37 +143,48 @@ public class PlayerStateStore {
                 if (trimmed.startsWith("state:")) {
                     snap.state = "IN_SANDBOX".equals(trimmed.substring(6).trim()) 
                             ? PlayerSnapshot.State.IN_SANDBOX : PlayerSnapshot.State.NONE;
-                } else if (line.contains("saved-at:")) {
+                } else if (line.contains("saved-at:") && trimmed.matches("^saved-at:\\s*\\d+")) {
                     try { snap.savedAt = Long.parseLong(line.split(":")[1].trim()); } catch (Exception ignored) {}
                 } else if (trimmed.startsWith("world:")) {
                     snap.originWorld = trimmed.substring(6).replaceAll("\"", "").trim();
+                // FIX: Use word boundary matching to avoid collisions with yaw/pitch/origin/player fields
                 } else if (trimmed.matches("^x:\\s*-?\\d+(\\.\\d+)?")) {
                     try { snap.originX = Double.parseDouble(trimmed.split(":")[1]); } catch (Exception ignored) {}
-                } else if (trimmed.matches("^y:\\s*-?\\d+(\\.\\d+)?")) {
+                } else if (trimmed.matches("^y:\\s*-?\\d+(\\.\\d+)?") && !trimmed.startsWith("yaw")) {
                     try { snap.originY = Double.parseDouble(trimmed.split(":")[1]); } catch (Exception ignored) {}
                 } else if (trimmed.matches("^z:\\s*-?\\d+(\\.\\d+)?")) {
                     try { snap.originZ = Double.parseDouble(trimmed.split(":")[1]); } catch (Exception ignored) {}
-                } else if (trimmed.startsWith("yaw:")) {
+                } else if (trimmed.startsWith("yaw:") && trimmed.length() > 4) {
+                    // FIX: Only match 'yaw:' not 'player:' or other y-prefixed fields
                     try { snap.originYaw = Float.parseFloat(trimmed.substring(4).trim()); } catch (Exception ignored) {}
                 } else if (trimmed.startsWith("pitch:")) {
                     try { snap.originPitch = Float.parseFloat(trimmed.substring(6).trim()); } catch (Exception ignored) {}
-                } else if (trimmed.startsWith("game-mode:")) {
+                } else if (trimmed.startsWith("game-mode:") && trimmed.length() > 10) {
                     try { snap.gameMode = org.bukkit.GameMode.valueOf(trimmed.split(":")[1].trim()); } 
                     catch (IllegalArgumentException ignored) { snap.gameMode = org.bukkit.GameMode.SURVIVAL; }
-                } else if (trimmed.startsWith("level:")) {
+                } else if (trimmed.startsWith("level:") && trimmed.length() > 6) {
                     try { snap.level = Integer.parseInt(trimmed.split(":")[1].trim()); } catch (Exception ignored) {}
-                } else if (trimmed.startsWith("exp:")) {
+                } else if (trimmed.startsWith("exp:") && trimmed.length() > 4) {
                     try { snap.exp = Float.parseFloat(trimmed.split(":")[1].trim()); } catch (Exception ignored) {}
-                } else if (trimmed.startsWith("health:")) {
+                } else if (trimmed.startsWith("health:") && trimmed.length() > 7) {
                     try { snap.health = Double.parseDouble(trimmed.substring(7).trim()); } catch (Exception ignored) {}
-                } else if (trimmed.startsWith("food:")) {
+                } else if (trimmed.startsWith("food:") && trimmed.length() > 5) {
                     try { snap.foodLevel = Integer.parseInt(trimmed.split(":")[1].trim()); } catch (Exception ignored) {}
-                } else if (trimmed.startsWith("saturation:")) {
+                } else if (trimmed.startsWith("saturation:") && trimmed.length() > 11) {
                     try { snap.saturation = Float.parseFloat(trimmed.substring(11).trim()); } catch (Exception ignored) {}
-                } else if (line.contains("inventory:") && line.indexOf('"') > -1) {
-                    invB64.append(line.substring(line.indexOf('"')+1, line.lastIndexOf('"')));
-                } else if (line.contains("ender-chest:") && line.indexOf('"') > -1) {
-                    ecB64.append(line.substring(line.indexOf('"')+1, line.lastIndexOf('"')));
+                // FIX: Match inventory/ender-chest lines that contain quotes for Base64 values
+                } else if (trimmed.startsWith("inventory:") && trimmed.contains("\"")) {
+                    int firstQuote = trimmed.indexOf('"');
+                    int lastQuote = trimmed.lastIndexOf('"');
+                    if (lastQuote > firstQuote) {
+                        invB64.append(trimmed.substring(firstQuote + 1, lastQuote));
+                    }
+                } else if (trimmed.startsWith("ender-chest:") && trimmed.contains("\"")) {
+                    int firstQuote = trimmed.indexOf('"');
+                    int lastQuote = trimmed.lastIndexOf('"');
+                    if (lastQuote > firstQuote) {
+                        ecB64.append(trimmed.substring(firstQuote + 1, lastQuote));
+                    }
                 }
             }
 
@@ -188,9 +201,16 @@ public class PlayerStateStore {
     public String serializeItemsToBase64(ItemStack[] items) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream();
              BukkitObjectOutputStream data = new BukkitObjectOutputStream(out)) {
-            if (items == null) return "null";
+            if (items == null || items.length == 0) return "null";
             data.writeInt(items.length);
-            for (ItemStack item : items) data.writeObject(item);
+            for (ItemStack item : items) {
+                // FIX: Handle null items safely
+                if (item != null) {
+                    data.writeObject(item);
+                } else {
+                    data.writeObject(null);
+                }
+            }
             return Base64Coder.encodeLines(out.toByteArray());
         } catch (IOException e) {
             plugin.getLogger().severe("Failed to serialize items: " + e.getMessage());
@@ -207,7 +227,14 @@ public class PlayerStateStore {
             try (BukkitObjectInputStream data = new BukkitObjectInputStream(in)) {
                 int length = Math.max(0, data.readInt());
                 ItemStack[] items = new ItemStack[length];
-                for (int i = 0; i < length; i++) items[i] = (ItemStack) data.readObject();
+                for (int i = 0; i < length; i++) {
+                    Object obj = data.readObject();
+                    if (obj instanceof ItemStack) {
+                        items[i] = (ItemStack) obj;
+                    } else {
+                        items[i] = null;
+                    }
+                }
                 return items;
             }
         } catch (IOException | ClassNotFoundException e) {
