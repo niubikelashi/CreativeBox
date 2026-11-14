@@ -1,4 +1,4 @@
-package com.bionic.creativebox.command;
+﻿package com.bionic.creativebox.command;
 
 import org.bukkit.*;
 import org.bukkit.command.Command;
@@ -9,16 +9,11 @@ import org.bukkit.entity.Player;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * /sb 指令处理器 + tab 补全。
- * 
- * 坑 #8: 控制台也可以使用（不强制 sender instanceof Player）。
- */
 public class SandboxCommand implements CommandExecutor, TabCompleter {
 
     private final CreativeBoxPlugin plugin;
     
-    // FIX: ConcurrentHashMap for thread-safe access from multiple command invocations
+    // ConcurrentHashMap for thread-safe access
     private final Map<UUID, Long> cooldowns = new ConcurrentHashMap<>();
 
     public SandboxCommand(CreativeBoxPlugin plugin) {
@@ -27,69 +22,54 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
-        // /sb [reload|setspawn|reset] 管理员命令
         if (args.length > 0) {
             switch (args[0].toLowerCase()) {
-                case "reload":
-                    return cmdReload(sender);
-                case "setspawn":
-                    return cmdSetSpawn(sender);
-                case "reset":
-                    return cmdReset(sender);
-                default:
-                    // 尝试当玩家名处理：/sb <player>（管理员版）
-                    return cmdTeleportPlayer(sender, args[0]);
+                case "reload": return cmdReload(sender);
+                case "setspawn": return cmdSetSpawn(sender);
+                case "reset": return cmdReset(sender);
+                default: return cmdTeleportPlayer(sender, args[0]);
             }
         }
 
-        // /sb — 进入或退出沙盒
         if (!(sender instanceof Player)) {
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
-                    plugin.getConfig().getString("messages.prefix", "&8[&b沙盒&8] ") + "控制台不支持直接进出沙盒，请使用 /sb <玩家>。"));
+                    plugin.getConfig().getString("messages.prefix", "&8[&b沙盒&8] ") + "Console cannot enter/exit sandbox directly. Use /sb <player>."));
             return true;
         }
 
         Player player = (Player) sender;
         
-        // 权限检查（坑 #9: 默认所有玩家都有）
         if (!player.hasPermission("creativebox.use")) {
-            sendNoPerm(player);
-            return true;
+            sendNoPerm(player); return true;
         }
 
-        // 冷却检查
         UUID uuid = player.getUniqueId();
         long now = System.currentTimeMillis();
         Long lastUse = cooldowns.put(uuid, now);
         if (lastUse != null && now - lastUse < 1000) {
-            sendCooldown(player);
-            return true;
+            sendCooldown(player); return true;
         }
 
-        // enter/exit toggle
         SandboxService svc = plugin.getSandboxService();
         if (svc.isInSandbox(player)) {
             svc.exit(player);
         } else {
             svc.enter(player);
         }
-
         return true;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
         if (sender instanceof Player && !((Player) sender).hasPermission("creativebox.admin")) {
-            return Collections.emptyList(); // 非 admin 只看到 sb
+            return Collections.emptyList();
         }
-
         List<String> completions = new ArrayList<>();
         if (args.length == 1) {
             String partial = args[0].toLowerCase();
             for (String s : new String[]{"reload", "setspawn", "reset"}) {
                 if (s.startsWith(partial)) completions.add(s);
             }
-            // 列出在线玩家名（管理员可以传送到沙盒）
             for (Player p : Bukkit.getOnlinePlayers()) {
                 if (p.getName().toLowerCase().startsWith(partial) && !p.getName().equals(sender.getName())) {
                     completions.add(p.getName());
@@ -100,20 +80,15 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
     }
 
     private boolean cmdReload(CommandSender sender) {
-        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) {
-            sendNoPerm(sender); return true;
-        }
+        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) { sendNoPerm(sender); return true; }
         plugin.reloadConfig();
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
                 plugin.getConfig().getString("messages.prefix", "") + plugin.getConfig().getString("messages.reload", "")));
-        plugin.getLogger().info("Config reloaded by " + (sender instanceof Player ? ((Player)sender).getName() : "CONSOLE"));
         return true;
     }
 
     private boolean cmdSetSpawn(CommandSender sender) {
-        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) {
-            sendNoPerm(sender); return true;
-        }
+        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) { sendNoPerm(sender); return true; }
         Player player = (Player) sender;
         Location loc = player.getLocation();
         org.bukkit.configuration.file.FileConfiguration config = plugin.getConfig();
@@ -122,51 +97,38 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
         config.set("spawn.z", loc.getZ());
         config.set("spawn.yaw", loc.getYaw());
         config.set("spawn.pitch", loc.getPitch());
-        
-        // 更新沙盒出生点
         plugin.getWorldManager().initializeSandbox();
         plugin.saveConfig();
-
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
                 plugin.getConfig().getString("messages.prefix", "") + plugin.getConfig().getString("messages.setspawn-done", "")));
         return true;
     }
 
     private boolean cmdReset(CommandSender sender) {
-        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) {
-            sendNoPerm(sender); return true;
-        }
-        
-        plugin.getLogger().info("Resetting sandbox world...");
+        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) { sendNoPerm(sender); return true; }
         SandboxService svc = plugin.getSandboxService();
-        boolean ok = plugin.getWorldManager().resetSandboxWorld(svc);
-        
-        // 重新初始化世界（需要玩家下次进入时生效）
+        plugin.getWorldManager().resetSandboxWorld(svc);
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
-                plugin.getConfig().getString("messages.prefix", "") + "&e沙盒世界已重置，下次 /sb 生效。"));
-        return ok;
+                plugin.getConfig().getString("messages.prefix", "") + "&eSandbox world reset. Takes effect on next /sb."));
+        return true;
     }
 
     private boolean cmdTeleportPlayer(CommandSender sender, String playerName) {
-        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) {
-            sendNoPerm(sender); return true;
-        }
-
+        if (!(sender instanceof Player) || !((Player) sender).hasPermission("creativebox.admin")) { sendNoPerm(sender); return true; }
         Player target = Bukkit.getPlayer(playerName);
         if (target == null) {
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
                     plugin.getConfig().getString("messages.prefix", "") + plugin.getConfig().getString("messages.player-not-found", "")));
             return true;
         }
-
         SandboxService svc = plugin.getSandboxService();
         if (svc.isInSandbox(target)) {
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
-                    plugin.getConfig().getString("messages.prefix", "") + target.getName() + " 已在沙盒中"));
+                    plugin.getConfig().getString("messages.prefix", "") + target.getName() + " is already in sandbox."));
         } else {
             svc.enter(target);
             sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
-                    plugin.getConfig().getString("messages.prefix", "") + "&e已将 " + target.getName() + " 送入沙盒"));
+                    plugin.getConfig().getString("messages.prefix", "") + "&eSent " + target.getName() + " to sandbox."));
         }
         return true;
     }
@@ -175,7 +137,6 @@ public class SandboxCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.translateAlternateColorCodes('&', 
                 plugin.getConfig().getString("messages.prefix", "") + plugin.getConfig().getString("messages.no-permission", "")));
     }
-
     private void sendCooldown(Player player) {
         player.sendMessage(ChatColor.translateAlternateColorCodes('&', 
                 plugin.getConfig().getString("messages.prefix", "") + plugin.getConfig().getString("messages.cooldown", "")));
