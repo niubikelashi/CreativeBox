@@ -70,21 +70,17 @@ public class SandboxWorldManager {
         return true;
     }
 
-    /**
-     * 在出生点下方铺设 5x5 平台。
-     * FIX: 使用 .clone() 避免 Location 对象在循环中被原地修改导致位置偏移。
-     */
+    /** 在出生点下方铺设 5x5 平台 */
     private void buildAutoPlatform() {
         int baseY = (int) spawnLocation.getY() - 1;
-        
-        for (double dx = -2; dx <= 2; dx++) {
-            for (double dz = -2; dz <= 2; dz++) {
-                // FIX: 每次循环使用 clone() + add()，不修改原始位置
-                Location bedrockLoc = spawnLocation.clone().add(dx, baseY - spawnLocation.getY(), dz);
-                bedrockLoc.getBlock().setType(Material.BEDROCK);
+        Location loc = new Location(sandboxWorld,
+                Math.floor(spawnLocation.getX()) - 2.0, baseY, 
+                Math.floor(spawnLocation.getZ()) - 2.0);
 
-                Location stoneLoc = spawnLocation.clone().add(dx, baseY + 1 - spawnLocation.getY() + (baseY + 1), dz);
-                stoneLoc.getBlock().setType(Material.STONE);
+        for (double dx = 0; dx < 5; dx++) {
+            for (double dz = 0; dz < 5; dz++) {
+                loc.add(dx, 0, dz).getBlock().setType(Material.BEDROCK);
+                loc.add(0, 1, 0).getBlock().setType(Material.STONE);
             }
         }
     }
