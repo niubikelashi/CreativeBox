@@ -34,7 +34,7 @@ public class SandboxService {
     /**
      * 进入沙盒的完整流程（坑 #5 顺序）：
      * 1. 幂等检查 → 2. 构造快照 → 3. state=IN_SANDBOX → 4. 先落盘 store.save(uuid) 
-     * 5. 内存标记 → 6. inventory.clear() + enderChest clear
+     * 5. 内存标记 → 6. inventory.clear() + enderChest.clear()
      * 7. 清空药水效果 → 8. teleport(sandboxSpawn) → 9. CREATIVE + allowFlight(true) + flying(true)
      * 10. 重置 health/food → 11. remove marking → 12. send enter message
      */
@@ -61,7 +61,8 @@ public class SandboxService {
 
         // 6. 清空背包和末影箱（内容已存盘）
         player.getInventory().clear();
-        // FIX: 正确清空末影箱 — setContents(null array)
+        player.getEnderChest().getContents(new ItemStack[0]);
+        // 正确清空末影箱：用 setContents(null array)
         player.getEnderChest().getInventory().setContents(new ItemStack[27]);
 
         // 7. 清空所有药水效果
@@ -75,12 +76,9 @@ public class SandboxService {
             player.teleport(spawn);
         } else {
             plugin.getLogger().warning("Sandbox spawn is null! Using main world spawn.");
-            World firstWorld = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorld(Bukkit.getWorlds().get(0).getName());
-            if (firstWorld != null) {
-                player.teleport(firstWorld.getSpawnLocation());
-            } else {
-                plugin.getLogger().severe("No worlds available for player " + player.getName() + "!");
-            }
+            Player mainWorldPlayer = Bukkit.getWorlds().isEmpty() ? player : 
+                    Bukkit.getWorld(Bukkit.getWorlds().get(0).getName()).getSpawnLocation() != null ? player : player;
+            player.teleport(Bukkit.getWorlds().get(0));
         }
 
         // 9. 设置创造模式 + 飞行（坑 #4: allowFlight → flying）
