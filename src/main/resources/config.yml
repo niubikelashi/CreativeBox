@@ -29,17 +29,28 @@ isolation:
   game-mode: true
   flight: true
 
-void-protection:
-  enabled: true
-  threshold: 50
+world-border:
+  enabled: false
+  diameter: 500
+
+reset:
+  enabled: false
+  time: "04:00"
 
 messages:
   prefix: "&8[&b沙盒&8] "
   enter: "&a已进入创意沙盒世界"
   exit: "&e已返回原世界"
-  reload: "&6配置已重载"
-  setspawn-done: "&a出生点已设置"
-  no-permission: "&c权限不足"
-  cooldown: "&8请等待冷却..."
-  respawn: "&e你在沙盒中死亡，已在出生点复活。"
-  player-not-found: "&c找不到该玩家"
+  no-permission: "&c你没有权限使用此功能"
+  cooldown: "&c请稍后再试"
+  reset-kick: "&e沙盒世界正在重置，已把你送回原世界"
+  respawn: "&a已在沙盒出生点复活"
+  reload: "&a配置已重载"
+  setspawn-done: "&a沙盒出生点已设为你当前位置"
+  already-in: "&c你已经身在创意沙盒中了"
+  not-in: "&c你现在不在创意沙盒中"
+  player-not-found: "&c玩家不存在"
+
+void-protection:
+  enabled: true
+  threshold: 10
