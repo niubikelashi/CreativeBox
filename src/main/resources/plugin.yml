@@ -1,5 +1,5 @@
 name: CreativeBox
-version: '${project.version}'
+version: '1.0-SNAPSHOT'
 main: com.bionic.creativebox.CreativeBoxPlugin
 api-version: '1.20'
 author: bionic
