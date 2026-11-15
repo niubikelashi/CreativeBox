@@ -23,7 +23,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
-      
+          
       - name: Build with Maven
         run: mvn clean package -B
         
@@ -55,7 +55,7 @@ jobs:
           TAG_COUNT=$(gh release list --limit 1000 2>/dev/null | wc -l)
           echo "tag_count=$TAG_COUNT" >> $GITHUB_OUTPUT
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: "${{ github.token }}"
       
       - name: Create Release
         id: create_release
