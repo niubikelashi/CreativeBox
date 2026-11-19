@@ -1,187 +1,275 @@
 package com.bionic.creativebox;
 
-import org.bukkit.*;
+import org.bukkit.Bukkit;
+import org.bukkit.GameRule;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.WorldCreator;
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.WorldType;
+import org.bukkit.block.Block;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.entity.Player;
+
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Comparator;
+import java.util.List;
+import java.util.logging.Level;
 
 /**
- * 沙盒世界管理器：创建/加载世界、设置出生点、配置 gamerule、重置世界。
+ * 沙盒世界管理：创建/加载沙盒世界、应用游戏规则、世界边界、自动铺平台、重置世界。
+ *
+ * 注意 API 兼容性（已在 paper-api 1.20.1 上实测签名）：
+ * - 卸载世界用 Bukkit.unloadWorld(...)，World 本身没有 unload()。
+ * - 世界类型用枚举 org.bukkit.WorldType（World.Type 不存在）。
+ * - 现代游戏规则用 org.bukkit.GameRule<Boolean> 常量；"pvp" 等未收录的键走 setGameRuleValue(String,String)。
  */
-public class SandboxWorldManager {
+public final class SandboxWorldManager {
 
     private final CreativeBoxPlugin plugin;
     private World sandboxWorld;
     private Location spawnLocation;
+    private String worldName = "sandbox";
 
     public SandboxWorldManager(CreativeBoxPlugin plugin) {
         this.plugin = plugin;
     }
 
-    /** 初始化沙盒世界：判断是否存在 → 不存在则创建 → 设置出生点 → 配置 gamerule */
-    public boolean initializeSandbox() {
-        FileConfiguration config = plugin.getConfig();
-
-        // 1. 获取/创建世界（必须先 getWorld 判空！坑 #1）
-        String worldName = config.getString("world.name", "sandbox");
-        this.sandboxWorld = Bukkit.getWorld(worldName);
-        
-        if (this.sandboxWorld == null) {
-            WorldType type;
-            try {
-                type = WorldType.valueOf(config.getString("world.type", "FLAT"));
-            } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Invalid world type, using FLAT.");
-                type = WorldType.FLAT;
-            }
-
-            boolean generateStructures = config.getBoolean("world.generate-structures", false);
-            long seed = config.getLong("world.seed", 0);
-
-            this.sandboxWorld = new WorldCreator(worldName)
-                    .type(type)
-                    .generateStructures(generateStructures)
-                    .seed(seed)
-                    .createWorld();
-
-            if (this.sandboxWorld == null) {
-                plugin.getLogger().severe("Failed to create sandbox world!");
-                return false;
-            }
-
-            // 自动铺设平台（如果配置开启）
-            if (config.getBoolean("world.auto-build-platform", true)) {
-                buildAutoPlatform();
-            }
-
-            plugin.getLogger().info("Created new sandbox world: " + worldName);
-        } else {
-            plugin.getLogger().info("Reusing existing sandbox world: " + worldName);
-        }
-
-        // 2. 设置出生点（从配置读取）
-        spawnLocation = loadSpawnFromConfig();
-        this.sandboxWorld.setSpawnLocation(spawnLocation);
-        plugin.getLogger().info("Sandbox spawn set to " + spawnLocation.toVector());
-
-        // 3. 配置 gamerule
-        applyGamerules();
-
-        return true;
+    public boolean isReady() {
+        return sandboxWorld != null && spawnLocation != null;
     }
 
-    /** 在出生点下方铺设 5x5 平台 */
-    private void buildAutoPlatform() {
-        int baseY = (int) spawnLocation.getY() - 1;
-        Location loc = new Location(sandboxWorld,
-                Math.floor(spawnLocation.getX()) - 2.0, baseY, 
-                Math.floor(spawnLocation.getZ()) - 2.0);
-
-        for (double dx = 0; dx < 5; dx++) {
-            for (double dz = 0; dz < 5; dz++) {
-                loc.add(dx, 0, dz).getBlock().setType(Material.BEDROCK);
-                loc.add(0, 1, 0).getBlock().setType(Material.STONE);
-            }
-        }
+    public World getWorld() {
+        return sandboxWorld;
     }
 
-    /** 从配置文件加载出生点坐标 */
-    private Location loadSpawnFromConfig() {
-        FileConfiguration config = plugin.getConfig();
-        return new Location(sandboxWorld,
-                config.getDouble("spawn.x", 0.5),
-                config.getDouble("spawn.y", 65.0),
-                config.getDouble("spawn.z", 0.5),
-                (float) config.getDouble("spawn.yaw", 0.0),
-                (float) config.getDouble("spawn.pitch", 0.0));
-    }
-
-    /** 应用 gamerule 到沙盒世界 */
-    private void applyGamerules() {
-        FileConfiguration config = plugin.getConfig();
-        
-        if (sandboxWorld != null) {
-            sandboxWorld.setGameRule(World.GameRule.DO_DAYLIGHT_CYCLE, 
-                    config.getBoolean("gamerules.do-daylight-cycle", false));
-            sandboxWorld.setGameRule(World.GameRule.DO_WEATHER_CYCLE, 
-                    config.getBoolean("gamerules.do-weather-cycle", false));
-            sandboxWorld.setGameRule(World.GameRule.DO_MOB_SPAWNING, 
-                    config.getBoolean("gamerules.do-mob-spawning", false));
-            sandboxWorld.setGameRule(World.GameRule.MOB_GRIEFING, 
-                    config.getBoolean("gamerules.mob-griefing", false));
-            sandboxWorld.setGameRule(World.GameRule.KEEP_INVENTORY, 
-                    config.getBoolean("gamerules.keep-inventory", true));
-            sandboxWorld.setGameRule(World.GameRule.PVP, 
-                    config.getBoolean("gamerules.pvp", false));
-
-            plugin.getLogger().info("Gamerules applied to sandbox world.");
-        }
-    }
-
-    /** 卸载沙盒世界（所有玩家必须先被移出） */
-    public boolean unloadSandboxWorld() {
-        if (sandboxWorld == null) return true;
-        
-        for (Player player : sandboxWorld.getPlayers()) {
-            player.teleport(Bukkit.getWorlds().get(0));
-        }
-
-        boolean unloaded = sandboxWorld.unload(true, false);
-        if (unloaded) {
-            plugin.getLogger().info("Sandbox world unloaded successfully.");
-        } else {
-            plugin.getLogger().warning("Failed to unload sandbox world!");
-        }
-        this.sandboxWorld = null;
-        return unloaded;
-    }
-
-    /** 获取沙盒世界（可能为 null） */
-    public World getSandboxWorld() { return sandboxWorld; }
-
-    /** 获取出生点位置 */
-    public Location getSpawnLocation() { return spawnLocation; }
-
-    /** 重置沙盒世界：unload → delete directory → reinitialize */
-    public boolean resetSandboxWorld(SandboxService service) {
-        // Step 1: 所有玩家安全送回主世界（走 SandboxService exit 流程）
-        for (Player player : sandboxWorld.getPlayers()) {
-            if (service != null) {
-                service.exit(player);
-            } else {
-                player.teleport(Bukkit.getWorlds().get(0));
-            }
-        }
-
-        // Step 2: 卸载世界
-        unloadSandboxWorld();
-
-        // Step 3: 删除世界目录（Paper/Leaves 使用 .db 后缀）
-        String dirName = plugin.getConfig().getString("world.name", "sandbox");
-        File worldDir = new File(plugin.getDataFolder().getParentFile().getParent(), dirName + ".db");
-        if (!worldDir.exists()) {
-            worldDir = new File(plugin.getDataFolder().getParentFile().getParent(), dirName);
-        }
-        
-        if (worldDir.isDirectory()) {
-            deleteDirectory(worldDir);
-            plugin.getLogger().info("Deleted sandbox world directory: " + worldDir.getName());
-        }
-
-        return true;
-    }
-
-    private void deleteDirectory(File dir) {
-        File[] children = dir.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                deleteDirectory(child);
-            }
-        }
-        dir.delete();
+    public Location getSpawnLocation() {
+        return spawnLocation;
     }
 
     public String getWorldName() {
-        return plugin.getConfig().getString("world.name", "sandbox");
+        return worldName;
+    }
+
+    /** 创建（或复用）沙盒世界并应用配置。返回 false 表示世界不可用。 */
+    public boolean initializeSandbox() {
+        ConfigurationSection cfg = plugin.getConfig();
+        worldName = cfg.getString("world.name", "sandbox");
+
+        World existing = Bukkit.getWorld(worldName);
+        if (existing != null) {
+            sandboxWorld = existing;
+        } else {
+            WorldCreator creator = new WorldCreator(worldName);
+            creator.environment(parseEnvironment(cfg.getString("world.environment", "NORMAL")));
+            WorldType type = WorldType.getByName(cfg.getString("world.type", "FLAT"));
+            creator.type(type == null ? WorldType.NORMAL : type);
+            creator.seed(cfg.getLong("world.seed", 0L));
+            creator.generateStructures(cfg.getBoolean("world.generate-structures", false));
+            String settings = cfg.getString("world.generator-settings", "");
+            if (!settings.isEmpty()) {
+                creator.generatorSettings(settings);
+            }
+            sandboxWorld = Bukkit.createWorld(creator);
+            if (sandboxWorld == null) {
+                plugin.getLogger().warning("无法创建沙盒世界: " + worldName);
+                return false;
+            }
+        }
+
+        applySpawn(cfg);
+        applyGamerules(cfg);
+        applyWorldBorder(cfg);
+        if (cfg.getBoolean("world.auto-build-platform", true)) {
+            buildAutoPlatform();
+        }
+        plugin.getLogger().info("沙盒世界已就绪: " + worldName);
+        return true;
+    }
+
+    /** 配置热更新后重新应用出生点、游戏规则与边界。 */
+    public boolean refreshWorldSettings() {
+        if (sandboxWorld == null) {
+            return initializeSandbox();
+        }
+        ConfigurationSection cfg = plugin.getConfig();
+        applySpawn(cfg);
+        applyGamerules(cfg);
+        applyWorldBorder(cfg);
+        if (cfg.getBoolean("world.auto-build-platform", true)) {
+            buildAutoPlatform();
+        }
+        return true;
+    }
+
+    private void applySpawn(ConfigurationSection cfg) {
+        double x = cfg.getDouble("spawn.x", 0.5);
+        double y = cfg.getDouble("spawn.y", 65.0);
+        double z = cfg.getDouble("spawn.z", 0.5);
+        float yaw = (float) cfg.getDouble("spawn.yaw", 0.0);
+        float pitch = (float) cfg.getDouble("spawn.pitch", 0.0);
+        spawnLocation = new Location(sandboxWorld, x, y, z, yaw, pitch);
+        // 用 Location 重载，避免把 double 硬塞进 int 重载（javac 会报精度损失）。
+        sandboxWorld.setSpawnLocation(spawnLocation);
+    }
+
+    private void applyGamerules(ConfigurationSection cfg) {
+        ConfigurationSection rules = cfg.getConfigurationSection("gamerules");
+        if (rules == null) {
+            return;
+        }
+        for (String key : rules.getKeys(false)) {
+            boolean value = rules.getBoolean(key, true);
+            GameRule<Boolean> typed = matchGameRule(key);
+            if (typed != null) {
+                sandboxWorld.setGameRule(typed, value);
+            } else {
+                // 兼容未收录进 GameRule 常量的键（例如 "pvp"）。
+                sandboxWorld.setGameRuleValue(key, String.valueOf(value));
+            }
+        }
+    }
+
+    private static GameRule<Boolean> matchGameRule(String key) {
+        switch (key.toLowerCase()) {
+            case "domobspawning": return GameRule.DO_MOB_SPAWNING;
+            case "dodaylightcycle": return GameRule.DO_DAYLIGHT_CYCLE;
+            case "doweathercycle": return GameRule.DO_WEATHER_CYCLE;
+            case "mobgriefing": return GameRule.MOB_GRIEFING;
+            case "keepinventory": return GameRule.KEEP_INVENTORY;
+            default: return null;
+        }
+    }
+
+    private void applyWorldBorder(ConfigurationSection cfg) {
+        if (!cfg.getBoolean("world-border.enabled", false)) {
+            return;
+        }
+        double diameter = cfg.getDouble("world-border.diameter", 500.0);
+        if (diameter <= 0) {
+            return;
+        }
+        org.bukkit.WorldBorder border = sandboxWorld.getWorldBorder();
+        border.setSize(diameter);
+        if (spawnLocation != null) {
+            border.setCenter(spawnLocation.getX(), spawnLocation.getZ());
+        }
+        plugin.getLogger().info("沙盒世界边界已设置，直径 " + diameter + " 格（世界 " + sandboxWorld.getName() + "）");
+    }
+
+    /**
+     * 在出生点下方铺一层基岩 + 石头，防止玩家一进场就掉进虚空。
+     * 修复说明：原版代码把同一个 Location 对象反复 add()，导致方块坐标累积错位；
+     * 这里改为按整数坐标逐个放置，表面（石头）位于出生点脚下方格。
+     */
+    private void buildAutoPlatform() {
+        if (spawnLocation == null) {
+            return;
+        }
+        int baseX = (int) Math.floor(spawnLocation.getX());
+        int baseZ = (int) Math.floor(spawnLocation.getZ());
+        int surfaceY = (int) Math.floor(spawnLocation.getY()) - 1;
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                Block stone = sandboxWorld.getBlockAt(baseX + dx, surfaceY, baseZ + dz);
+                stone.setType(org.bukkit.Material.STONE);
+                Block bedrock = sandboxWorld.getBlockAt(baseX + dx, surfaceY - 1, baseZ + dz);
+                bedrock.setType(org.bukkit.Material.BEDROCK);
+            }
+        }
+    }
+
+    /** 把沙盒内的玩家送回主世界出生点。 */
+    private void evacuatePlayers() {
+        World home = firstLoadedWorld();
+        if (home == null) {
+            plugin.getLogger().warning("找不到可返回的世界，玩家仍留在沙盒中");
+            return;
+        }
+        for (Player player : sandboxWorld.getPlayers()) {
+            player.teleport(home.getSpawnLocation());
+        }
+    }
+
+    private World firstLoadedWorld() {
+        List<World> worlds = Bukkit.getWorlds();
+        for (World world : worlds) {
+            if (!world.getName().equalsIgnoreCase(worldName)) {
+                return world;
+            }
+        }
+        return worlds.isEmpty() ? null : worlds.get(0);
+    }
+
+    /**
+     * 重置沙盒：把玩家送回主世界，卸载并删除世界目录，再按当前配置重建。
+     * 修复说明：原版代码删除目录后不再重建，之后进入沙盒会拿到 null 世界。
+     */
+    public boolean resetSandboxWorld(SandboxService service) {
+        if (sandboxWorld == null) {
+            return initializeSandbox();
+        }
+        evacuatePlayers();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (service.isInSandbox(player)) {
+                service.exit(player);
+            }
+        }
+
+        boolean unloaded = Bukkit.unloadWorld(sandboxWorld, false);
+        if (!unloaded) {
+            plugin.getLogger().warning("世界卸载失败，跳过删除与重建");
+            return false;
+        }
+        sandboxWorld = null;
+        spawnLocation = null;
+
+        File dir = worldDirectory(worldName);
+        if (dir != null) {
+            deleteRecursively(dir);
+        } else {
+            plugin.getLogger().info("没有发现世界目录，直接重建");
+        }
+        return initializeSandbox();
+    }
+
+    /** 世界目录可能带 .db 后缀（单人存档风格），也可能不带（区域目录直接在外层）。 */
+    private File worldDirectory(String name) {
+        File container = Bukkit.getWorldContainer();
+        File withSuffix = new File(container, name + ".db");
+        if (withSuffix.isDirectory()) {
+            return withSuffix;
+        }
+        File plain = new File(container, name);
+        if (plain.isDirectory()) {
+            return plain;
+        }
+        return null;
+    }
+
+    private void deleteRecursively(File dir) {
+        try {
+            Files.walk(dir.toPath())
+                    .sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            plugin.getLogger().log(Level.WARNING, "删除失败: " + path, e);
+                        }
+                    });
+            plugin.getLogger().info("已删除沙盒世界目录: " + dir.getName());
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.WARNING, "删除世界目录失败: " + dir, e);
+        }
+    }
+
+    private static World.Environment parseEnvironment(String raw) {
+        try {
+            return World.Environment.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return World.Environment.NORMAL;
+        }
     }
 }

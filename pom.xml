@@ -2,41 +2,54 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
+  <modelVersion>4.0.0</modelVersion>
 
-    <parent>
-        <groupId>me.bionic</groupId>
-        <artifactId>bionic-plugins</artifactId>
-        <version>1.0-SNAPSHOT</version>
-    </parent>
+  <!-- 原来这个项目引用了一个仓库里不存在、也不在 Maven Central 的父 POM
+       （me.bionic:bionic-plugins:1.0-SNAPSHOT），导致 mvn 直接失败。
+       改成独立 POM：只声明 paper-api（provided）和仓库地址。 -->
+  <groupId>com.bionic</groupId>
+  <artifactId>creativebox</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
 
-    <artifactId>CreativeBox</artifactId>
-    <packaging>jar</packaging>
+  <name>CreativeBox</name>
+  <description>Minecraft Paper/Spigot 1.20.1 沙盒世界插件</description>
 
-    <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <!-- Paper 1.20.1 — compatible with Paper and Leaves (Paper fork) -->
-        <paper.version>1.20.1-R0.1-SNAPSHOT</paper.version>
-    </properties>
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <paper.api.version>1.20.1-R0.1-SNAPSHOT</paper.api.version>
+  </properties>
 
-    <dependencies>
-        <dependency>
-            <groupId>io.papermc.paper</groupId>
-            <artifactId>paper-api</artifactId>
-            <version>${paper.version}</version>
-            <scope>provided</scope>
-        </dependency>
-    </dependencies>
+  <repositories>
+    <repository>
+      <id>papermc</id>
+      <url>https://repo.papermc.io/repository/maven-public/</url>
+    </repository>
+  </repositories>
 
-    <build>
-        <finalName>${project.name}-${project.version}</finalName>
-        <!-- No shade plugin — zero third-party dependencies -->
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <filtering>false</filtering>
-            </resource>
-        </resources>
-    </build>
+  <dependencies>
+    <dependency>
+      <groupId>io.papermc.paper</groupId>
+      <artifactId>paper-api</artifactId>
+      <version>${paper.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>CreativeBox-${project.version}</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.3.0</version>
+      </plugin>
+    </plugins>
+  </build>
 </project>

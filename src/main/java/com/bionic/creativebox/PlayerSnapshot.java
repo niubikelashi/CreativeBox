@@ -1,110 +1,92 @@
 package com.bionic.creativebox;
 
-import org.bukkit.inventory.ItemStack;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.Player;
+import org.bukkit.potion.PotionEffect;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-public class PlayerSnapshot {
+/**
+ * 玩家进入沙盒前的状态快照。
+ * 背包与末影箱以 Base64 字符串保存（序列化由 {@link PlayerStateStore} 完成）。
+ */
+public final class PlayerSnapshot {
 
     public enum State { NONE, IN_SANDBOX }
 
-    // 元数据
-    public UUID uuid;
-    public long savedAt;
-    
-    // 原世界位置（退出时传送回去）
-    public String originWorld;
-    public double originX, originY, originZ;
-    public float originYaw, originPitch;
+    public final UUID playerId;
+    public String playerName;
 
-    // 玩家状态
-    public org.bukkit.GameMode gameMode;
-    public boolean allowFlight, flying;
+    public String originWorld;
+    public double x, y, z;
+    public float yaw, pitch;
+
+    public GameMode gameMode = GameMode.SURVIVAL;
+    public boolean allowFlight;
+    public boolean flying;
+
     public int level;
-    public float exp;       // [0,1) progress within current level
-    
-    // 生命/饥饿/氧气
+    public float exp;
+
     public double health;
     public int foodLevel;
     public float saturation;
-    
-    // 火焰/冰冻 ticks (1.17+)
-    public int fireTicks, freezeTicks;
+    public int fireTicks;
+    public int freezeTicks;
 
-    // 背包（41格：36主+4盔甲+1副手）- Base64 编码
-    public String inventoryBase64;
-    
-    // 末影箱（27格）
-    public String enderChestBase64;
+    public List<PotionEffect> potionEffects = new ArrayList<>();
 
-    // 药水效果列表
-    public List<PotionEffectData> potionEffects = new ArrayList<>();
+    public String inventoryBase64 = "";
+    public String enderChestBase64 = "";
 
-    // 沙盒状态标记
     public State state = State.NONE;
+    public long savedAt = System.currentTimeMillis();
 
-    /** 简化的药水效果数据 */
-    public static class PotionEffectData {
-        public String type;       // PotionType enum name
-        public int duration, amplifier;
-        public boolean ambient, hasParticles, hasIcon;
+    public static PlayerSnapshot fromPlayer(Player player, Location origin) {
+        PlayerSnapshot snap = new PlayerSnapshot(player.getUniqueId());
+        snap.playerName = player.getName();
 
-        public PotionEffectData() {}
-
-        public PotionEffectData(org.bukkit.potion.PotionEffect pe) {
-            this.type = pe.getType().getTypeName();
-            this.duration = pe.getDuration();
-            this.amplifier = pe.getAmplifier();
-            this.ambient = pe.isAmbient();
-            this.hasParticles = pe.hasParticles();
-            this.hasIcon = pe.hasIcon();
+        if (origin == null) {
+            origin = player.getLocation();
         }
-
-        public org.bukkit.potion.PotionEffect toPotionEffect() {
-            try {
-                return new org.bukkit.potion.PotionEffect(
-                    org.bukkit.potion.PotionType.valueOf(type.toUpperCase()), 
-                    duration, amplifier, ambient, hasParticles, hasIcon);
-            } catch (Exception e) {
-                return null;
-            }
-        }
-    }
-
-    /** 从 Player 构造快照 */
-    public static PlayerSnapshot fromPlayer(org.bukkit.entity.Player player) {
-        PlayerSnapshot snap = new PlayerSnapshot();
-        snap.uuid = player.getUniqueId();
-        snap.savedAt = System.currentTimeMillis();
-
-        org.bukkit.Location loc = player.getLocation();
-        snap.originWorld = loc.getWorld().getName();
-        snap.originX = loc.getX();
-        snap.originY = loc.getY();
-        snap.originZ = loc.getZ();
-        snap.originYaw = loc.getYaw();
-        snap.originPitch = loc.getPitch();
+        World world = origin.getWorld();
+        snap.originWorld = world == null ? "" : world.getName();
+        snap.x = origin.getX();
+        snap.y = origin.getY();
+        snap.z = origin.getZ();
+        snap.yaw = origin.getYaw();
+        snap.pitch = origin.getPitch();
 
         snap.gameMode = player.getGameMode();
         snap.allowFlight = player.getAllowFlight();
         snap.flying = player.isFlying();
+
         snap.level = player.getLevel();
         snap.exp = player.getExp();
+
         snap.health = player.getHealth();
         snap.foodLevel = player.getFoodLevel();
         snap.saturation = player.getSaturation();
         snap.fireTicks = player.getFireTicks();
+        snap.freezeTicks = player.getFreezeTicks();
 
-        try { snap.freezeTicks = player.getFreezeTicks(); } catch (Exception ignored) {}
+        snap.potionEffects = new ArrayList<>(player.getActivePotionEffects());
 
-        for (org.bukkit.potion.PotionEffect pe : player.getActivePotionEffects()) {
-            snap.potionEffects.add(new PotionEffectData(pe));
-        }
-
+        snap.inventoryBase64 = PlayerStateStore.serializeItems(player.getInventory().getContents());
+        snap.enderChestBase64 = PlayerStateStore.serializeItems(player.getEnderChest().getContents());
         return snap;
     }
 
-    /** 是否为空快照 */
-    public boolean isEmpty() { return uuid == null; }
+    private PlayerSnapshot(UUID playerId) {
+        this.playerId = playerId;
+    }
+
+    /** 从磁盘状态重建快照（不含玩家实时数据）。 */
+    public static PlayerSnapshot forId(UUID playerId) {
+        return new PlayerSnapshot(playerId);
+    }
 }

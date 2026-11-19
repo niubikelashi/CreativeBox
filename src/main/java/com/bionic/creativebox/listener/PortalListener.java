@@ -1,14 +1,21 @@
 package com.bionic.creativebox.listener;
 
-import org.bukkit.entity.EntityType;
+import com.bionic.creativebox.CreativeBoxPlugin;
+import com.bionic.creativebox.SandboxService;
+import com.bionic.creativebox.SandboxWorldManager;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityPortalEvent;
+import org.bukkit.projectiles.ProjectileSource;
 
 /**
- * 传送门与末影珍珠拦截：沙盒世界内取消所有跨维度传送（坑 #5）。
+ * 阻止沙盒里的玩家（以及末影珍珠等投射物）通过下界/末地传送门穿到主世界。
+ * 插件自己发起的进出传送不经过实体传送门事件，所以不需要放行标记。
  */
-public class PortalListener implements Listener {
+public final class PortalListener implements Listener {
 
     private final CreativeBoxPlugin plugin;
 
@@ -16,24 +23,40 @@ public class PortalListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler
-    public void onPlayerPortal(PlayerPortalEvent event) {
-        Player player = event.getPlayer();
-        
-        if (plugin.getWorldManager().getSandboxWorld() != null && 
-                player.getWorld() == plugin.getWorldManager().getSandboxWorld()) {
-            // 取消传送门（包括地狱门、末地门）
-            event.setCancelled(true);
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onEntityPortal(EntityPortalEvent event) {
+        SandboxService service = plugin.getSandboxService();
+        SandboxWorldManager worlds = plugin.getWorldManager();
+        if (service == null || worlds == null || !worlds.isReady()) {
+            return;
         }
-    }
 
-    @EventHandler
-    public void onEntityPortal(org.bukkit.event.entity.EntityPortalEvent event) {
-        if (plugin.getWorldManager().getSandboxWorld() != null && 
-                event.getEntity().getWorld() == plugin.getWorldManager().getSandboxWorld()) {
-            // 拦截末影珍珠跨世界传送、矿车通过传送门等（坑 #5）
-            if (event.getEntityType() == EntityType.ENDER_PEARL) return; // 同世界珍珠不拦
-            event.setCancelled(true);
+        String sandboxName = worlds.getWorldName();
+        if (event.getEntity() == null || event.getEntity().getWorld() == null
+                || !event.getEntity().getWorld().getName().equals(sandboxName)) {
+            return;
+        }
+
+        boolean sandboxInside = false;
+        if (event.getEntity() instanceof Player) {
+            sandboxInside = service.isInSandbox((Player) event.getEntity());
+        } else if (event.getEntity() instanceof Projectile) {
+            ProjectileSource shooter = ((Projectile) event.getEntity()).getShooter();
+            if (shooter instanceof Player) {
+                sandboxInside = service.isInSandbox((Player) shooter);
+            }
+        }
+        if (!sandboxInside) {
+            return;
+        }
+
+        if (!plugin.getConfig().getBoolean("isolation.block-cross-world-teleport", true)) {
+            return;
+        }
+        event.setCancelled(true);
+        if (event.getEntity() instanceof Player) {
+            plugin.getSandboxService().message((Player) event.getEntity(), "portal-blocked",
+                    "&c沙盒内不能通过传送门穿越世界");
         }
     }
 }

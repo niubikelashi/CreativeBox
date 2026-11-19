@@ -1,8 +1,14 @@
+# CreativeBox 配置
+# 改完记得 /sb reload 生效。
+
 world:
-  name: "sandbox"
-  type: FLAT
+  name: sandbox
+  environment: NORMAL      # NORMAL | NETHER | THE_END | CUSTOM
+  type: FLAT               # FLAT | NORMAL | LARGE_BIOMES | AMPLIFIED
   seed: 0
   generate-structures: false
+  generator-settings: ""   # 超平坦字符串，例如 "minecraft:bedrock,2*minecraft:dirt,minecraft:grass_block"
+  # 进场前在出生点下方铺 5x5 基岩+石头，防止一进场就掉进虚空
   auto-build-platform: true
 
 spawn:
@@ -12,45 +18,51 @@ spawn:
   yaw: 0.0
   pitch: 0.0
 
+# 键名用原版游戏规则名；未收录进 GameRule 常量的键（如 pvp）会自动走字符串接口
 gamerules:
-  do-daylight-cycle: false
-  do-weather-cycle: false
-  do-mob-spawning: false
-  mob-griefing: false
-  keep-inventory: true
+  doMobSpawning: false
+  doDaylightCycle: false
+  doWeatherCycle: false
+  mobGriefing: false
+  keepInventory: true
   pvp: false
-
-isolation:
-  inventory: true
-  ender-chest: true
-  experience: true
-  potion-effects: true
-  health-and-food: true
-  game-mode: true
-  flight: true
 
 world-border:
   enabled: false
-  diameter: 500
+  diameter: 500            # 边界直径（格），中心对准沙盒出生点
 
-reset:
-  enabled: false
-  time: "04:00"
+sandbox:
+  game-mode: CREATIVE
+  allow-flight: true
+  flying: false
 
-messages:
-  prefix: "&8[&b沙盒&8] "
-  enter: "&a已进入创意沙盒世界"
-  exit: "&e已返回原世界"
-  no-permission: "&c你没有权限使用此功能"
-  cooldown: "&c请稍后再试"
-  reset-kick: "&e沙盒世界正在重置，已把你送回原世界"
-  respawn: "&a已在沙盒出生点复活"
-  reload: "&a配置已重载"
-  setspawn-done: "&a沙盒出生点已设为你当前位置"
-  already-in: "&c你已经身在创意沙盒中了"
-  not-in: "&c你现在不在创意沙盒中"
-  player-not-found: "&c玩家不存在"
+isolation:
+  # true = 进入沙盒时清掉该状态，退出时恢复；false = 原样保留
+  all: false               # true 时下面各项全部生效
+  inventory: true
+  ender-chest: true
+  potion-effects: true
+  experience: true
+  health-and-food: true
+  # 禁止沙盒与主世界之间的跨世界传送/传送门（插件自身的进出传送不受影响）
+  block-cross-world-teleport: true
 
 void-protection:
   enabled: true
-  threshold: 10
+  # 绝对高度阈值：玩家 Y 低于该值且继续往下掉时，拉回出生点（默认 50）
+  threshold: 50
+
+reset:
+  enabled: false
+  time: "04:00"            # 服务器本地时间，每天一次，删除并重建沙盒世界
+
+messages:
+  prefix: "&8[&b沙盒&8] "
+  entered-sandbox: "&a已进入沙盒世界"
+  exited-sandbox: "&a已退出沙盒，状态已恢复"
+  already-in-sandbox: "&c你已经在沙盒里了"
+  not-in-sandbox: "&c你不在沙盒里"
+  world-not-ready: "&c沙盒世界不可用，请管理员执行 /sb reload"
+  void-rescued: "&c你掉出了沙盒，已拉回出生点"
+  teleport-blocked: "&c沙盒内不允许跨世界传送，用 /sb exit 退出"
+  portal-blocked: "&c沙盒内不能通过传送门穿越世界"

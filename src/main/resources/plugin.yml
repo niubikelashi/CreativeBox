@@ -1,18 +1,17 @@
 name: CreativeBox
-version: '1.0-SNAPSHOT'
 main: com.bionic.creativebox.CreativeBoxPlugin
+version: 1.0-SNAPSHOT
 api-version: '1.20'
-author: bionic
-description: Isolated creative sandbox world with fixed spawn and full inventory isolation.
-
-commands:
-  sb:
-    description: Enter or leave the creative sandbox
-    usage: /sb [reload|setspawn|reset|<player>]
-    aliases: [sandbox, goc]
-
+description: 隔离沙盒世界：进入后按配置隔离状态，退出时恢复玩家状态
 permissions:
   creativebox.use:
+    description: 使用 /sb enter /sb exit /sb status
     default: true
   creativebox.admin:
+    description: 使用 /sb setspawn /sb reload /sb reset /sb world
     default: op
+commands:
+  sb:
+    description: 沙盒世界命令
+    usage: "/sb <help|enter|exit|status|setspawn|reload|reset|world>"
+    aliases: [sandbox, goc]

@@ -1,17 +1,23 @@
 package com.bionic.creativebox.listener;
 
-import org.bukkit.*;
+import com.bionic.creativebox.CreativeBoxPlugin;
+import com.bionic.creativebox.SandboxService;
+import com.bionic.creativebox.SandboxWorldManager;
+import com.bionic.creativebox.util.Text;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerTeleportEvent;
 
+import java.util.UUID;
+
 /**
- * 真正入口钩子：拦截所有跨世界传送。
- * 
- * 坑 #5: TeleportEvent 内再 teleport() 会死循环 → 用 isEntering/isExiting 标记挡住。
+ * 传送拦截：沙盒世界不与主世界互相穿越，除非是插件自己发起的进出传送。
+ * entering/exiting 标记用于放行插件自身的传送，避免「拦截 -> 递归传送」死循环。
  */
-public class TeleportListener implements Listener {
+public final class TeleportListener implements Listener {
 
     private final CreativeBoxPlugin plugin;
 
@@ -19,36 +25,35 @@ public class TeleportListener implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onTeleport(PlayerTeleportEvent event) {
+        SandboxService service = plugin.getSandboxService();
+        SandboxWorldManager worlds = plugin.getWorldManager();
+        if (service == null || worlds == null || !worlds.isReady()) {
+            return;
+        }
+
         Player player = event.getPlayer();
-        SandboxService svc = plugin.getSandboxService();
-
-        // 防递归：如果已经在进入/退出流程中，跳过（坑 #5）
-        if (svc.isEntering(player) || svc.isExiting(player)) return;
-
-        World fromWorld = event.getFrom().getWorld();
-        Location toLoc = event.getTo();
-        
-        // getTo() 可能为 null（坑 #5）
-        if (toLoc == null) return;
-        World toWorld = toLoc.getWorld();
-
-        if (fromWorld == null || toWorld == null) return;
-
-        String sandboxName = plugin.getConfig().getString("world.name", "sandbox");
-        boolean fromSandbox = fromWorld.getName().equals(sandboxName);
-        boolean toSandbox = toWorld.getName().equals(sandboxName);
-
-        // 进入沙盒：from != sandbox && to == sandbox
-        if (!fromSandbox && toSandbox) {
-            event.setCancelled(true);   // cancel original teleport
-            svc.enter(player);          // run enter flow
+        UUID id = player.getUniqueId();
+        if (service.isEntering(id) || service.isExiting(id)) {
+            return;
         }
-        // 退出沙盒：from == sandbox && to != sandbox  
-        else if (fromSandbox && !toSandbox) {
-            event.setCancelled(true);
-            svc.exit(player);           // run exit flow
+
+        World from = event.getFrom().getWorld();
+        World to = event.getTo() == null ? from : event.getTo().getWorld();
+        String sandboxName = worlds.getWorldName();
+        if (from == null || to == null || from.getName().equals(to.getName())) {
+            return;
         }
+        if (!from.getName().equals(sandboxName) && !to.getName().equals(sandboxName)) {
+            return;
+        }
+
+        if (!plugin.getConfig().getBoolean("isolation.block-cross-world-teleport", true)) {
+            return;
+        }
+        event.setCancelled(true);
+        player.sendMessage(Text.color(
+                plugin.getConfig().getString("messages.teleport-blocked", "&c沙盒内不允许跨世界传送，用 /sb exit 退出")));
     }
 }
