@@ -101,6 +101,17 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Version 1.0.0 -NoZip
 - 字节码 `major version: 61`（Java 17），Java 17/21 都能跑；服务端版本要求 ≥ 1.20.1，1.20.1 ~ 1.21.11 都实测加载成功
 - 注：本次测试是用**重定向 stdin 的控制台**跑的，Leaves/Paper 在这种非交互终端下执行控制台命令会抛 `CommandSourceStack.getLevel()` 为 null 的 NPE（连 `/stop` 也一样），这是终端限制，不是插件问题；`/sb` 命令在游戏内由玩家执行不受影响。
 
+## CI 与下载（已跑通）
+
+代码已推送到 `main`（提交 `add4551`，并打了 tag `v1.0.0`），GitHub Actions 全部通过：
+
+- 两次 push run + 一次 tag run：`conclusion = success`
+- 每次运行产出 artifact `CreativeBox-jar`（37398 B，Maven 构建）
+- tag 运行创建 release **v1.0.0**，附带 `CreativeBox.zip`（43803 B，内含 `plugins/CreativeBox-1.0-SNAPSHOT.jar` + `plugins/config.yml` + `README.md`）
+- 下载：<https://github.com/niubikelashi/CreativeBox/releases/download/v1.0.0/CreativeBox.zip>
+- 已核对 CI 产物：jar 里含 `plugin.yml`/`config.yml`，class 头 `cafebabe`，字节码 `major version: 61`（Java 17），因此 Java 17/21 都能跑
+- workflow 的 job 声明了 `permissions: contents: write`，否则建 release 的那一步会因 GITHUB_TOKEN 只读而失败
+
 ## 已知限制
 
 - 沙盒世界由插件创建；如果世界名与已有世界冲突，插件复用那个世界（不会删别人的存档）。
